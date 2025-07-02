@@ -3,6 +3,12 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert } from 're
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@/components/ThemeProvider';
 import { useExpenseStore } from '@/store/useExpenseStore';
+import { AuthModal } from '@/components/AuthModal';
+import { RecurringTransactionModal } from '@/components/RecurringTransactionModal';
+import { BillReminderModal } from '@/components/BillReminderModal';
+import { ExportModal } from '@/components/ExportModal';
+import { notificationService } from '@/services/notifications';
+import { apiService } from '@/services/api';
 import { 
   Moon, 
   Sun, 
@@ -14,7 +20,14 @@ import {
   Palette,
   Database,
   Info,
-  ChevronRight
+  ChevronRight,
+  User,
+  LogIn,
+  LogOut,
+  Repeat,
+  Calendar,
+  MessageSquare,
+  Sync
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
@@ -22,30 +35,42 @@ export default function SettingsScreen() {
   const theme = useTheme();
   const { settings, updateSettings, exportData, importData, clearAllData, expenses } = useExpenseStore();
   const [isLoading, setIsLoading] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showRecurringModal, setShowRecurringModal] = useState(false);
+  const [showBillReminderModal, setShowBillReminderModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState<any>(null);
 
   const handleExportData = async () => {
+    setShowExportModal(true);
+  };
+
+  const handleSyncData = async () => {
+    if (!isLoggedIn) {
+      Alert.alert('Login Required', 'Please login to sync your data');
+      return;
+    }
+
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      const data = await exportData();
-      
-      // In a real app, you would use a file picker or share functionality
-      // For now, we'll just show the data in an alert
-      Alert.alert(
-        'Export Successful',
-        `Your data has been exported. Total expenses: ${expenses.length}`,
-        [
-          {
-            text: 'Copy to Clipboard',
-            onPress: () => {
-              // In a real app, you would copy to clipboard
-              console.log('Data:', data);
-            }
-          },
-          { text: 'OK' }
-        ]
-      );
+      const localData = {
+        expenses,
+        categories: [],
+        budgets: [],
+        tags: [],
+        settings,
+        lastSync: new Date(),
+      };
+
+      const response = await apiService.syncData(localData);
+      if (response.success) {
+        Alert.alert('Success', 'Data synced successfully');
+      } else {
+        Alert.alert('Sync Failed', response.error || 'Failed to sync data');
+      }
     } catch (error) {
-      Alert.alert('Error', 'Failed to export data');
+      Alert.alert('Error', 'Failed to sync data');
     } finally {
       setIsLoading(false);
     }
@@ -71,6 +96,49 @@ export default function SettingsScreen() {
         }
       ]
     );
+  };
+
+  const handleNotificationToggle = async (enabled: boolean) => {
+    updateSettings({ notifications: enabled });
+    
+    if (enabled) {
+      await notificationService.initialize();
+      await notificationService.scheduleDailyReminder();
+    } else {
+      await notificationService.cancelAllNotifications();
+    }
+  };
+
+  const handleWhatsAppToggle = async (enabled: boolean) => {
+    if (enabled && !user?.phoneNumber) {
+      Alert.alert(
+        'Phone Number Required',
+        'Please add your phone number in your profile to enable WhatsApp notifications'
+      );
+      return;
+    }
+    
+    // Update user preferences via API
+    if (isLoggedIn) {
+      const response = await apiService.updateNotificationPreferences({
+        whatsapp: enabled,
+      });
+      
+      if (response.success) {
+        Alert.alert('Success', `WhatsApp notifications ${enabled ? 'enabled' : 'disabled'}`);
+      }
+    }
+  };
+
+  const handleLogin = (userData: any) => {
+    setUser(userData);
+    setIsLoggedIn(true);
+  };
+
+  const handleLogout = async () => {
+    await apiService.logout();
+    setUser(null);
+    setIsLoggedIn(false);
   };
 
   const currencyOptions = ['₹', '$', '€', '£', '¥'];
@@ -214,6 +282,24 @@ export default function SettingsScreen() {
       fontWeight: '600',
       color: theme.colors.text,
     },
+    userInfo: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: theme.borderRadius.md,
+      padding: theme.spacing.md,
+      marginBottom: theme.spacing.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    userName: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: theme.spacing.xs,
+    },
+    userEmail: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+    },
   });
 
   return (
@@ -224,6 +310,52 @@ export default function SettingsScreen() {
 
       <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <Animated.View entering={FadeInDown.delay(100)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Account</Text>
+          
+          {isLoggedIn && user ? (
+            <View style={styles.userInfo}>
+              <Text style={styles.userName}>{user.name}</Text>
+              <Text style={styles.userEmail}>{user.email}</Text>
+            </View>
+          ) : null}
+
+          <Pressable 
+            style={styles.settingItem} 
+            onPress={() => isLoggedIn ? handleLogout() : setShowAuthModal(true)}
+          >
+            <View style={styles.settingLeft}>
+              {isLoggedIn ? (
+                <LogOut size={20} color={theme.colors.error} style={styles.settingIcon} />
+              ) : (
+                <LogIn size={20} color={theme.colors.primary} style={styles.settingIcon} />
+              )}
+              <View style={styles.settingText}>
+                <Text style={[styles.settingTitle, isLoggedIn && { color: theme.colors.error }]}>
+                  {isLoggedIn ? 'Sign Out' : 'Sign In'}
+                </Text>
+                <Text style={styles.settingDescription}>
+                  {isLoggedIn ? 'Sign out of your account' : 'Sync data across devices'}
+                </Text>
+              </View>
+            </View>
+            <ChevronRight size={20} color={theme.colors.textSecondary} />
+          </Pressable>
+
+          {isLoggedIn && (
+            <Pressable style={styles.settingItem} onPress={handleSyncData}>
+              <View style={styles.settingLeft}>
+                <Sync size={20} color={theme.colors.primary} style={styles.settingIcon} />
+                <View style={styles.settingText}>
+                  <Text style={styles.settingTitle}>Sync Data</Text>
+                  <Text style={styles.settingDescription}>Backup and sync your data</Text>
+                </View>
+              </View>
+              <ChevronRight size={20} color={theme.colors.textSecondary} />
+            </Pressable>
+          )}
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(200)} style={styles.section}>
           <Text style={styles.sectionTitle}>Appearance</Text>
           
           <View style={styles.settingItem}>
@@ -285,27 +417,69 @@ export default function SettingsScreen() {
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(200)} style={styles.section}>
-          <Text style={styles.sectionTitle}>Preferences</Text>
+        <Animated.View entering={FadeInDown.delay(300)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Notifications</Text>
           
           <View style={styles.settingItem}>
             <View style={styles.settingLeft}>
               <Bell size={20} color={theme.colors.primary} style={styles.settingIcon} />
               <View style={styles.settingText}>
-                <Text style={styles.settingTitle}>Notifications</Text>
+                <Text style={styles.settingTitle}>Push Notifications</Text>
                 <Text style={styles.settingDescription}>Enable expense reminders</Text>
               </View>
             </View>
             <Switch
               value={settings.notifications}
-              onValueChange={(notifications) => updateSettings({ notifications })}
+              onValueChange={handleNotificationToggle}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '30' }}
               thumbColor={settings.notifications ? theme.colors.primary : theme.colors.textSecondary}
             />
           </View>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingLeft}>
+              <MessageSquare size={20} color={theme.colors.success} style={styles.settingIcon} />
+              <View style={styles.settingText}>
+                <Text style={styles.settingTitle}>WhatsApp Notifications</Text>
+                <Text style={styles.settingDescription}>Get summaries via WhatsApp</Text>
+              </View>
+            </View>
+            <Switch
+              value={false} // This would come from user preferences
+              onValueChange={handleWhatsAppToggle}
+              trackColor={{ false: theme.colors.border, true: theme.colors.success + '30' }}
+              thumbColor={false ? theme.colors.success : theme.colors.textSecondary}
+            />
+          </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(300)} style={styles.section}>
+        <Animated.View entering={FadeInDown.delay(400)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Automation</Text>
+          
+          <Pressable style={styles.settingItem} onPress={() => setShowRecurringModal(true)}>
+            <View style={styles.settingLeft}>
+              <Repeat size={20} color={theme.colors.primary} style={styles.settingIcon} />
+              <View style={styles.settingText}>
+                <Text style={styles.settingTitle}>Recurring Transactions</Text>
+                <Text style={styles.settingDescription}>Set up automatic expenses</Text>
+              </View>
+            </View>
+            <ChevronRight size={20} color={theme.colors.textSecondary} />
+          </Pressable>
+
+          <Pressable style={styles.settingItem} onPress={() => setShowBillReminderModal(true)}>
+            <View style={styles.settingLeft}>
+              <Calendar size={20} color={theme.colors.warning} style={styles.settingIcon} />
+              <View style={styles.settingText}>
+                <Text style={styles.settingTitle}>Bill Reminders</Text>
+                <Text style={styles.settingDescription}>Never miss a payment</Text>
+              </View>
+            </View>
+            <ChevronRight size={20} color={theme.colors.textSecondary} />
+          </Pressable>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(500)} style={styles.section}>
           <Text style={styles.sectionTitle}>Data</Text>
           
           <View style={styles.statsContainer}>
@@ -326,7 +500,7 @@ export default function SettingsScreen() {
               <Download size={20} color={theme.colors.primary} style={styles.settingIcon} />
               <View style={styles.settingText}>
                 <Text style={styles.settingTitle}>Export Data</Text>
-                <Text style={styles.settingDescription}>Backup your expenses</Text>
+                <Text style={styles.settingDescription}>Download PDF or CSV reports</Text>
               </View>
             </View>
             <ChevronRight size={20} color={theme.colors.textSecondary} />
@@ -344,7 +518,7 @@ export default function SettingsScreen() {
           </Pressable>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(400)} style={styles.section}>
+        <Animated.View entering={FadeInDown.delay(600)} style={styles.section}>
           <Text style={styles.sectionTitle}>Danger Zone</Text>
           
           <Pressable 
@@ -361,15 +535,15 @@ export default function SettingsScreen() {
           </Pressable>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(500)} style={styles.section}>
+        <Animated.View entering={FadeInDown.delay(700)} style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           
           <View style={styles.settingItem}>
             <View style={styles.settingLeft}>
               <Info size={20} color={theme.colors.primary} style={styles.settingIcon} />
               <View style={styles.settingText}>
-                <Text style={styles.settingTitle}>Expense Tracker</Text>
-                <Text style={styles.settingDescription}>Version 1.0.0</Text>
+                <Text style={styles.settingTitle}>Expense Tracker Pro</Text>
+                <Text style={styles.settingDescription}>Version 2.0.0 - Enhanced with AI & WhatsApp</Text>
               </View>
             </View>
           </View>
@@ -377,6 +551,35 @@ export default function SettingsScreen() {
 
         <View style={{ height: 50 }} />
       </ScrollView>
+
+      <AuthModal
+        visible={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={handleLogin}
+      />
+
+      <RecurringTransactionModal
+        visible={showRecurringModal}
+        onClose={() => setShowRecurringModal(false)}
+        onSave={(transaction) => {
+          // Handle saving recurring transaction
+          console.log('Recurring transaction:', transaction);
+        }}
+      />
+
+      <BillReminderModal
+        visible={showBillReminderModal}
+        onClose={() => setShowBillReminderModal(false)}
+        onSave={(reminder) => {
+          // Handle saving bill reminder
+          console.log('Bill reminder:', reminder);
+        }}
+      />
+
+      <ExportModal
+        visible={showExportModal}
+        onClose={() => setShowExportModal(false)}
+      />
     </SafeAreaView>
   );
 }
