@@ -9,26 +9,7 @@ import { BillReminderModal } from '@/components/BillReminderModal';
 import { ExportModal } from '@/components/ExportModal';
 import { notificationService } from '@/services/notifications';
 import { apiService } from '@/services/api';
-import { 
-  Moon, 
-  Sun, 
-  Download, 
-  Upload, 
-  Trash2, 
-  Bell, 
-  DollarSign,
-  Palette,
-  Database,
-  Info,
-  ChevronRight,
-  User,
-  LogIn,
-  LogOut,
-  Repeat,
-  Calendar,
-  MessageSquare,
-  Sync
-} from 'lucide-react-native';
+import { Moon, Sun, Download, Upload, Trash2, Bell, DollarSign, Palette, Database, Info, ChevronRight, User, LogIn, LogOut, Repeat, Calendar, MessageSquare, FolderSync as Sync } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 export default function SettingsScreen() {
